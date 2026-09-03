@@ -65,3 +65,16 @@ def generate_ship(length, occupied):
 
     raise ValueError("Не удалось разместить корабль")
 
+
+
+def generate_fleet():
+    fleet = []
+    occupied = set()
+
+
+    for length in FLEET:
+        ship = generate_ship(length, occupied)
+        fleet.append(ship)
+        occupied.update(ship)
+
+    return fleet
