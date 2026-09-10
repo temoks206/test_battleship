@@ -48,7 +48,7 @@ def can_place_ship(ship, occupied):
 
 
 def generate_ship(length, occupied):
-    for _ in range(1000):
+    for i in range(1000):
         row = random.randrange(BOARD_ROWS)
         column = random.randrange(BOARD_COLUMNS)
         direction = random.choice(["horizontal", "vertical"])
