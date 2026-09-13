@@ -78,3 +78,29 @@ def generate_fleet():
         occupied.update(ship)
 
     return fleet
+
+
+
+
+def coordinate_to_string(row, column):
+    letter = chr(ord("A") + column)
+    return f"{letter}{row + 1}"
+
+
+
+
+def fleet_to_contract(fleet):
+    ships = []
+
+    for ship in fleet:
+        coordinates = [
+            coordinate_to_string(row, column)
+            for row, column in ship
+        ]
+
+        ships.append({
+            "coordinates": coordinates
+        })
+
+    return ships
+
