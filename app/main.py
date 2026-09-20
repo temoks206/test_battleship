@@ -7,6 +7,10 @@ from app.database import SessionLocal
 from app.models import User
 
 
+import uuid
+from app.models import User, GameSession
+from app.fleet import generate_fleet, fleet_to_contract
+
 class UserCreate(BaseModel):
     username: str
 
@@ -46,3 +50,31 @@ def get_users():
     session.close()
 
     return users
+
+
+
+
+@app.post("/game", status_code=201)
+def create_game():
+    session = SessionLocal()
+
+    session_id = uuid.uuid4()
+    fleet = generate_fleet()
+
+    game = GameSession(
+        session_id=session_id,
+        fleet=fleet,
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    response = {
+        "session_id": str(game.session_id),
+        "ships": fleet_to_contract(fleet),
+    }
+
+    session.close()
+
+    return response
