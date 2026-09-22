@@ -1,6 +1,6 @@
 import pytest
 
-from app.game_logic import parse_coordinate, determine_shot_result
+from app.game_logic import parse_coordinate, determine_shot_result, get_neighbor_cells, choose_neighbor_shot, choose_random_shot, get_active_hits, choose_next_shot
 
 def test_parse_coordinate():
     assert parse_coordinate("A1") == (0, 0)
@@ -107,4 +107,227 @@ def test_repeated_shot_on_damaged_ship():
     )
 
     assert result == "hit"
+
+
+
+def test_get_neighbor_cells():
+    neighbors = get_neighbor_cells(6, 3)
+
+    assert set(neighbors) == {
+        (5, 3),
+        (7, 3),
+        (6, 2),
+        (6, 4),
+    }
+
+
+def test_get_neighbor_cells_on_corner():
+    neighbors = get_neighbor_cells(0, 0)
+
+    assert set(neighbors) == {
+        (1, 0),
+        (0, 1),
+    }
+
+
+
+def test_get_neighbor_cells():
+    neighbors = get_neighbor_cells(6, 3)
+
+    assert set(neighbors) == {
+        (5, 3),
+        (7, 3),
+        (6, 2),
+        (6, 4),
+    }
+
+
+def test_get_neighbor_cells_on_corner():
+    neighbors = get_neighbor_cells(0, 0)
+
+    assert set(neighbors) == {
+        (1, 0),
+        (0, 1),
+    }
+
+
+def test_choose_neighbor_shot():
+    used_shots = [
+        (5, 3),
+    ]
+
+    shot = choose_neighbor_shot(
+        row=6,
+        column=3,
+        used_shots=used_shots,
+    )
+
+    assert shot in {
+        (7, 3),
+        (6, 2),
+        (6, 4),
+    }
+
+    assert shot not in used_shots
+
+
+def test_choose_neighbor_shot_no_available_cells():
+    used_shots = [
+        (5, 3),
+        (7, 3),
+        (6, 2),
+        (6, 4),
+    ]
+
+    shot = choose_neighbor_shot(
+        row=6,
+        column=3,
+        used_shots=used_shots,
+    )
+
+    assert shot is None
+
+
+
+def test_choose_random_shot():
+    used_shots = [
+        (0, 0),
+        (0, 1),
+        (5, 5),
+    ]
+
+    shot = choose_random_shot(used_shots)
+
+    assert shot is not None
+    assert shot not in used_shots
+
+    row, column = shot
+
+    assert 0 <= row < 10
+    assert 0 <= column < 10
+
+
+def test_choose_random_shot_no_available_cells():
+    used_shots = [
+        (row, column)
+        for row in range(10)
+        for column in range(10)
+    ]
+
+    shot = choose_random_shot(used_shots)
+
+    assert shot is None
+
+
+
+def test_get_active_hits():
+    shots = [
+        {"row": 6, "column": 3, "result": "hit"},
+        {"row": 5, "column": 3, "result": "miss"},
+    ]
+
+    assert get_active_hits(shots) == [
+        (6, 3),
+    ]
+
+
+def test_get_active_hits_multiple():
+    shots = [
+        {"row": 6, "column": 3, "result": "hit"},
+        {"row": 6, "column": 4, "result": "hit"},
+    ]
+
+    assert get_active_hits(shots) == [
+        (6, 3),
+        (6, 4),
+    ]
+
+
+def test_get_active_hits_after_killed():
+    shots = [
+        {"row": 1, "column": 1, "result": "hit"},
+        {"row": 1, "column": 2, "result": "killed"},
+        {"row": 6, "column": 3, "result": "hit"},
+    ]
+
+    assert get_active_hits(shots) == [
+        (6, 3),
+    ]
+
+
+
+def test_choose_next_shot_without_hits():
+    shots = [
+        {"row": 0, "column": 0, "result": "miss"},
+        {"row": 5, "column": 5, "result": "miss"},
+    ]
+
+    shot = choose_next_shot(shots)
+
+    assert shot is not None
+    assert shot not in {
+        (0, 0),
+        (5, 5),
+    }
+
+
+def test_choose_next_shot_with_one_hit():
+    shots = [
+        {"row": 6, "column": 3, "result": "hit"},
+    ]
+
+    shot = choose_next_shot(shots)
+
+    # После одного попадания стреляем
+    # в одну из соседних клеток
+    assert shot in {
+        (5, 3),
+        (7, 3),
+        (6, 2),
+        (6, 4),
+    }
+
+
+def test_choose_next_shot_horizontal_ship():
+    shots = [
+        {"row": 6, "column": 3, "result": "hit"},
+        {"row": 6, "column": 4, "result": "hit"},
+    ]
+
+    shot = choose_next_shot(shots)
+
+    # Уже понятно, что корабль горизонтальный
+    assert shot in {
+        (6, 2),
+        (6, 5),
+    }
+
+
+def test_choose_next_shot_vertical_ship():
+    shots = [
+        {"row": 3, "column": 5, "result": "hit"},
+        {"row": 4, "column": 5, "result": "hit"},
+    ]
+
+    shot = choose_next_shot(shots)
+
+    # Уже понятно, что корабль вертикальный
+    assert shot in {
+        (2, 5),
+        (5, 5),
+    }
+
+
+def test_choose_next_shot_does_not_repeat():
+    shots = [
+        {"row": 6, "column": 3, "result": "hit"},
+        {"row": 5, "column": 3, "result": "miss"},
+        {"row": 7, "column": 3, "result": "miss"},
+        {"row": 6, "column": 2, "result": "miss"},
+    ]
+
+    shot = choose_next_shot(shots)
+
+    # Из четырёх соседей D7 свободным остался только один
+    assert shot == (6, 4)
 
