@@ -1,6 +1,6 @@
 import pytest
 
-from app.game_logic import parse_coordinate, determine_shot_result, get_neighbor_cells, choose_neighbor_shot, choose_random_shot, get_active_hits, choose_next_shot
+from app.game_logic import parse_coordinate, determine_shot_result, get_neighbor_cells, choose_neighbor_shot, choose_random_shot, get_active_hits, choose_next_shot, can_make_shot
 
 def test_parse_coordinate():
     assert parse_coordinate("A1") == (0, 0)
@@ -331,3 +331,117 @@ def test_choose_next_shot_does_not_repeat():
     # Из четырёх соседей D7 свободным остался только один
     assert shot == (6, 4)
 
+
+
+def test_can_make_shot_without_history():
+    shots = []
+
+    # История пуста, поэтому сервис не может определить очередность.
+    # Если Арена вызвала /shot первой, разрешаем выполнение.
+    assert can_make_shot(shots) is True
+
+
+def test_can_make_shot_while_waiting_result():
+    shots = [
+        {
+            "side": "self",
+            "result": None,
+        },
+    ]
+
+    # Наш выстрел уже сделан, но его результат ещё неизвестен
+    assert can_make_shot(shots) is False
+
+
+def test_can_make_shot_after_our_miss():
+    shots = [
+        {
+            "side": "self",
+            "result": "miss",
+        },
+    ]
+
+    # После нашего промаха ход переходит противнику
+    assert can_make_shot(shots) is False
+
+
+def test_can_make_shot_after_our_hit():
+    shots = [
+        {
+            "side": "self",
+            "result": "hit",
+        },
+    ]
+
+    # После попадания продолжаем стрелять
+    assert can_make_shot(shots) is True
+
+
+def test_can_make_shot_after_our_killed():
+    shots = [
+        {
+            "side": "self",
+            "result": "killed",
+        },
+    ]
+
+    # После уничтожения корабля ход также продолжается
+    assert can_make_shot(shots) is True
+
+
+def test_can_make_shot_after_opponent_miss():
+    shots = [
+        {
+            "side": "opponent",
+            "result": "miss",
+        },
+    ]
+
+    # Противник промахнулся — ход переходит нам
+    assert can_make_shot(shots) is True
+
+
+def test_can_make_shot_after_opponent_hit():
+    shots = [
+        {
+            "side": "opponent",
+            "result": "hit",
+        },
+    ]
+
+    # Противник попал — он продолжает стрелять
+    assert can_make_shot(shots) is False
+
+
+def test_can_make_shot_after_opponent_killed():
+    shots = [
+        {
+            "side": "opponent",
+            "result": "killed",
+        },
+    ]
+
+    # Противник уничтожил корабль — его ход продолжается
+    assert can_make_shot(shots) is False
+
+
+
+def test_can_make_shot_uses_last_shot():
+    shots = [
+        {
+            "side": "self",
+            "result": "miss",
+        },
+        {
+            "side": "opponent",
+            "result": "hit",
+        },
+        {
+            "side": "opponent",
+            "result": "miss",
+        },
+    ]
+
+    # Последним был промах противника,
+    # поэтому теперь можно стрелять нам
+    assert can_make_shot(shots) is True

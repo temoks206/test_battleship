@@ -258,3 +258,43 @@ def choose_next_shot(shots):
 
     # Если вокруг добивать больше нечего, то возвращаемся к случайному поиску
     return choose_random_shot(used_shots)
+
+
+
+# Проверяем, можем ли мы сейчас стрелять
+def can_make_shot(shots):
+    # Ждём ручку от арены
+    if not shots:
+        return True
+
+    # Для определения хода достаточно последнего выстрела
+    last_shot = shots[-1]
+
+    side = last_shot["side"]
+    result = last_shot["result"]
+
+    # Последний выстрел был наш
+    if side == "self":
+
+        # Результат нашего выстрела ещё не получен
+        if result is None:
+            return False
+
+        # После попадания наш ход продолжается
+        if result in ("hit", "killed"):
+            return True
+
+        # После промаха ход переходит противнику
+        return False
+
+    # Последний выстрел был противника
+    if side == "opponent":
+
+        # После промаха противника ход переходит к нам
+        if result == "miss":
+            return True
+
+        # После hit или killed противник продолжает стрелять
+        return False
+
+    return False

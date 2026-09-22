@@ -9,8 +9,8 @@ from app.database import SessionLocal
 
 import uuid
 from app.models import User, GameSession, Shot
-from app.fleet import generate_fleet, fleet_to_contract
-from app.game_logic import parse_coordinate, determine_shot_result
+from app.fleet import generate_fleet, fleet_to_contract, coordinate_to_string
+from app.game_logic import parse_coordinate, determine_shot_result, choose_next_shot, can_make_shot
 
 class UserCreate(BaseModel):
     username: str
@@ -97,7 +97,7 @@ def opponent_shot(session_id: str, shot_request: OpponentShotRequest):
         except ValueError:
             raise HTTPException(
                 status_code=404,
-                detail="Игровая сессия не найдена",
+                detail="Сессия не найдена",
             )
 
         # Ищем игровую сессию в базе
@@ -108,14 +108,14 @@ def opponent_shot(session_id: str, shot_request: OpponentShotRequest):
         if game is None:
             raise HTTPException(
                 status_code=404,
-                detail="Игровая сессия не найдена",
+                detail="Сессия не найдена",
             )
 
         # Завершённую игру использовать нельзя
         if game.status == "closed":
             raise HTTPException(
                 status_code=410,
-                detail="Игровая сессия завершена",
+                detail="Сессия завершена",
             )
 
         # Переводим координату вида D7 во внутренний формат
@@ -164,3 +164,113 @@ def opponent_shot(session_id: str, shot_request: OpponentShotRequest):
 
     finally:
         session.close()
+
+
+
+@app.post("/game/{session_id}/shot")
+def make_shot(session_id: str):
+    session = SessionLocal()
+
+    try:
+        # Проверяем session_id и приводим его к UUID
+        try:
+            session_uuid = uuid.UUID(session_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=404,
+                detail="Сессия не найдена",
+            )
+
+        # Ищем игровую сессию
+        game = session.query(GameSession).filter(
+            GameSession.session_id == session_uuid
+        ).first()
+
+        if game is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Сессия не найдена",
+            )
+
+        # Завершённую игру использовать нельзя
+        if game.status == "closed":
+            raise HTTPException(
+                status_code=410,
+                detail="Сессия завершена",
+            )
+
+        # Получаем ВСЮ историю выстрелов этой игры
+        all_shots = session.query(Shot).filter(
+            Shot.game_session_id == game.id,
+        ).order_by(Shot.id).all()
+
+        # Для проверки очередности нам нужны
+        # только сторона и результат каждого выстрела
+        game_history = [
+            {
+                "side": shot.side,
+                "result": shot.result,
+            }
+            for shot in all_shots
+        ]
+
+        # Проверяем, разрешён ли сейчас наш выстрел
+        if not can_make_shot(game_history):
+            raise HTTPException(
+                status_code=409,
+                detail="Выстрел не в свой ход",
+            )
+
+        # Для выбора координаты нам уже нужны
+        # только НАШИ предыдущие выстрелы
+        self_shots = [
+            shot
+            for shot in all_shots
+            if shot.side == "self"
+        ]
+
+        # Приводим наши выстрелы к формату,
+        # который понимает choose_next_shot()
+        shot_history = [
+            {
+                "row": shot.row,
+                "column": shot.column,
+                "result": shot.result,
+            }
+            for shot in self_shots
+        ]
+
+        # Выбираем следующую клетку
+        coordinate = choose_next_shot(shot_history)
+
+        if coordinate is None:
+            raise HTTPException(
+                status_code=500,
+                detail="Непредвиденная ошибка",
+            )
+
+        row, column = coordinate
+
+        # Сохраняем наш новый выстрел
+        # result пока None, потому что Арена
+        # ещё не сообщила результат
+        new_shot = Shot(
+            game_session_id=game.id,
+            side="self",
+            row=row,
+            column=column,
+            result=None,
+        )
+
+        session.add(new_shot)
+        session.commit()
+
+        # Возвращаем координату в формате D7
+        return {
+            "coordinate": coordinate_to_string(row, column),
+        }
+
+    finally:
+        session.close()
+
+

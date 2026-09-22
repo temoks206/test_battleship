@@ -256,3 +256,218 @@ def test_opponent_shot_hit_then_killed():
 
     assert second_response.status_code == 200
     assert second_response.json() == {"result": "killed"}
+
+
+def test_make_shot():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    game_id = game.id
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot"
+    )
+
+    assert response.status_code == 200
+
+    data = response.json()
+
+    assert "coordinate" in data
+
+    # Проверяем, что выстрел сохранился в базе
+    session = SessionLocal()
+
+    shot = session.query(Shot).filter(
+        Shot.game_session_id == game_id,
+        Shot.side == "self",
+    ).first()
+
+    assert shot is not None
+    assert shot.result is None
+
+    session.close()
+
+
+def test_make_shot_game_not_found():
+    response = client.post(
+        f"/game/{uuid4()}/shot"
+    )
+
+    assert response.status_code == 404
+
+
+def test_make_shot_closed_game():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="closed",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot"
+    )
+
+    assert response.status_code == 410
+
+
+def test_make_shot_not_our_turn():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    # Наш предыдущий выстрел был промахом,
+    # значит сейчас должен ходить противник
+    shot = Shot(
+        game_session_id=game.id,
+        side="self",
+        row=0,
+        column=0,
+        result="miss",
+    )
+
+    session.add(shot)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot"
+    )
+
+    assert response.status_code == 409
+
+
+def test_make_shot_after_hit():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    # Предыдущий наш выстрел попал в D7
+    shot = Shot(
+        game_session_id=game.id,
+        side="self",
+        row=6,
+        column=3,
+        result="hit",
+    )
+
+    session.add(shot)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot"
+    )
+
+    assert response.status_code == 200
+
+    # После попадания следующий выстрел должен
+    # быть по одной из соседних клеток D7
+    assert response.json()["coordinate"] in {
+        "D6",
+        "D8",
+        "C7",
+        "E7",
+    }
+
+
+def test_make_shot_does_not_repeat():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    # Ранее мы стреляли в A1 и промахнулись
+    self_shot = Shot(
+        game_session_id=game.id,
+        side="self",
+        row=0,
+        column=0,
+        result="miss",
+    )
+
+    # Затем противник тоже промахнулся,
+    # поэтому ход снова перешёл к нам
+    opponent_shot = Shot(
+        game_session_id=game.id,
+        side="opponent",
+        row=9,
+        column=9,
+        result="miss",
+    )
+
+    session.add(self_shot)
+    session.add(opponent_shot)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot"
+    )
+
+    assert response.status_code == 200
+
+    # Повторно стрелять в A1 нельзя
+    assert response.json()["coordinate"] != "A1"
