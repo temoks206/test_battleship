@@ -471,3 +471,157 @@ def test_make_shot_does_not_repeat():
 
     # Повторно стрелять в A1 нельзя
     assert response.json()["coordinate"] != "A1"
+
+
+
+
+
+def test_accept_shot_result():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    shot = Shot(
+        game_session_id=game.id,
+        side="self",
+        row=6,
+        column=4,
+        result=None,
+    )
+
+    session.add(shot)
+    session.commit()
+
+    session_id = str(game.session_id)
+    shot_id = shot.id
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot/result",
+        json={
+            "result": "hit",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "accepted",
+    }
+
+    # Проверяем, что результат действительно записался в БД
+    session = SessionLocal()
+
+    saved_shot = session.query(Shot).filter(
+        Shot.id == shot_id
+    ).first()
+
+    assert saved_shot.result == "hit"
+
+    session.close()
+
+
+def test_accept_shot_result_invalid_result():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+    session.refresh(game)
+
+    shot = Shot(
+        game_session_id=game.id,
+        side="self",
+        row=0,
+        column=0,
+        result=None,
+    )
+
+    session.add(shot)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot/result",
+        json={
+            "result": "unknown",
+        },
+    )
+
+    assert response.status_code == 400
+
+
+def test_accept_shot_result_without_pending_shot():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot/result",
+        json={
+            "result": "miss",
+        },
+    )
+
+    assert response.status_code == 409
+
+
+def test_accept_shot_result_closed_game():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="closed",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/shot/result",
+        json={
+            "result": "hit",
+        },
+    )
+
+    assert response.status_code == 410

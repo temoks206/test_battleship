@@ -20,6 +20,10 @@ class OpponentShotRequest(BaseModel):
     coordinate: str
 
 
+class ShotResultRequest(BaseModel):
+    result: str
+
+
 app = FastAPI(title="Battleship Service")
 
 
@@ -204,8 +208,7 @@ def make_shot(session_id: str):
             Shot.game_session_id == game.id,
         ).order_by(Shot.id).all()
 
-        # Для проверки очередности нам нужны
-        # только сторона и результат каждого выстрела
+        # Для проверки очередности нам нужны только сторона и результат каждого выстрела
         game_history = [
             {
                 "side": shot.side,
@@ -221,16 +224,14 @@ def make_shot(session_id: str):
                 detail="Выстрел не в свой ход",
             )
 
-        # Для выбора координаты нам уже нужны
-        # только НАШИ предыдущие выстрелы
+        # Для выбора координаты нам уже нужны только НАШИ предыдущие выстрелы
         self_shots = [
             shot
             for shot in all_shots
             if shot.side == "self"
         ]
 
-        # Приводим наши выстрелы к формату,
-        # который понимает choose_next_shot()
+        # Приводим наши выстрелы к формату, который понимает choose_next_shot
         shot_history = [
             {
                 "row": shot.row,
@@ -251,9 +252,7 @@ def make_shot(session_id: str):
 
         row, column = coordinate
 
-        # Сохраняем наш новый выстрел
-        # result пока None, потому что Арена
-        # ещё не сообщила результат
+        # Сохраняем наш новый выстрел пока None, потому что Арена ещё не сообщила результат
         new_shot = Shot(
             game_session_id=game.id,
             side="self",
@@ -265,7 +264,7 @@ def make_shot(session_id: str):
         session.add(new_shot)
         session.commit()
 
-        # Возвращаем координату в формате D7
+        # Возвращаем координату в формате API
         return {
             "coordinate": coordinate_to_string(row, column),
         }
@@ -274,3 +273,75 @@ def make_shot(session_id: str):
         session.close()
 
 
+
+@app.post("/game/{session_id}/shot/result")
+def accept_shot_result(
+    session_id: str,
+    result_request: ShotResultRequest,
+):
+    session = SessionLocal()
+
+    try:
+        # Проверяем session_id и приводим его к UUID
+        try:
+            session_uuid = uuid.UUID(session_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=404,
+                detail="Игровая сессия не найдена",
+            )
+
+        # Ищем игровую сессию
+        game = session.query(GameSession).filter(
+            GameSession.session_id == session_uuid
+        ).first()
+
+        if game is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Сессия не найдена",
+            )
+
+        # Завершённую игру использовать нельзя
+        if game.status == "closed":
+            raise HTTPException(
+                status_code=410,
+                detail="Сессия завершена",
+            )
+
+        # Проверяем результат выстрела
+        if result_request.result not in (
+            "miss",
+            "hit",
+            "killed",
+        ):
+            raise HTTPException(
+                status_code=400,
+                detail="Некорректные данные запроса",
+            )
+
+        # Ищем наш выстрел, результат которого ещё не был получен
+        pending_shot = session.query(Shot).filter(
+            Shot.game_session_id == game.id,
+            Shot.side == "self",
+            Shot.result.is_(None),
+        ).order_by(Shot.id.desc()).first()
+
+        # Если такого выстрела нет, то нарушена последовательность запросов
+        if pending_shot is None:
+            raise HTTPException(
+                status_code=409,
+                detail="Нарушена последовательность игры",
+            )
+
+        # Сохраняем результат выстрела
+        pending_shot.result = result_request.result
+
+        session.commit()
+
+        return {
+            "status": "accepted",
+        }
+
+    finally:
+        session.close()
