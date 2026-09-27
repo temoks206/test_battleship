@@ -625,3 +625,81 @@ def test_accept_shot_result_closed_game():
     )
 
     assert response.status_code == 410
+
+
+
+
+
+def test_close_game():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+    game_id = game.id
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/close"
+    )
+
+    assert response.status_code == 200
+    assert response.json() == {
+        "status": "closed",
+    }
+
+    # Проверяем, что статус действительно изменился в БД
+    session = SessionLocal()
+
+    saved_game = session.query(GameSession).filter(
+        GameSession.id == game_id
+    ).first()
+
+    assert saved_game.status == "closed"
+
+    session.close()
+
+
+def test_close_game_twice():
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0]],
+        ],
+        status="closed",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    response = client.post(
+        f"/game/{session_id}/close"
+    )
+
+    assert response.status_code == 400
+
+
+def test_close_game_not_found():
+    response = client.post(
+        f"/game/{uuid4()}/close"
+    )
+
+    assert response.status_code == 404
+
+
