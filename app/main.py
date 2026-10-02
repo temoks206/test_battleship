@@ -105,9 +105,15 @@ def opponent_shot(session_id: str, shot_request: OpponentShotRequest):
             )
 
         # Ищем игровую сессию в базе
-        game = session.query(GameSession).filter(
-            GameSession.session_id == session_uuid
-        ).first()
+        # Блокируем игровую сессию, чтобы параллельные выстрелы противника обрабатывались последовательно
+        game = (
+            session.query(GameSession)
+            .filter(
+                GameSession.session_id == session_uuid
+            )
+            .with_for_update()
+            .first()
+        )
 
         if game is None:
             raise HTTPException(
@@ -186,9 +192,15 @@ def make_shot(session_id: str):
             )
 
         # Ищем игровую сессию
-        game = session.query(GameSession).filter(
-            GameSession.session_id == session_uuid
-        ).first()
+        # Блокируем игровую сессию до конца транзакции, чтобы два параллельных запроса не изменяли её одновременно
+        game = (
+            session.query(GameSession)
+            .filter(
+                GameSession.session_id == session_uuid
+            )
+            .with_for_update()
+            .first()
+        )
 
         if game is None:
             raise HTTPException(
@@ -292,9 +304,15 @@ def accept_shot_result(
             )
 
         # Ищем игровую сессию
-        game = session.query(GameSession).filter(
-            GameSession.session_id == session_uuid
-        ).first()
+        # Блокируем игровую сессию, чтобы одновременно нельзя было принять два результата одного выстрела
+        game = (
+            session.query(GameSession)
+            .filter(
+                GameSession.session_id == session_uuid
+            )
+            .with_for_update()
+            .first()
+        )
 
         if game is None:
             raise HTTPException(
@@ -364,9 +382,15 @@ def close_game(session_id: str):
             )
 
         # Ищем игровую сессию
-        game = session.query(GameSession).filter(
-            GameSession.session_id == session_uuid
-        ).first()
+        # Блокируем игровую сессию, чтобы два параллельных запроса не смогли одновременно закрыть одну игру
+        game = (
+            session.query(GameSession)
+            .filter(
+                GameSession.session_id == session_uuid
+            )
+            .with_for_update()
+            .first()
+        )
 
         if game is None:
             raise HTTPException(
