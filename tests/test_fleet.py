@@ -1,4 +1,4 @@
-from app.fleet import FLEET, generate_fleet, can_place_ship, is_ship_inside_board
+from app.fleet import FLEET, generate_fleet, can_place_ship, is_ship_inside_board, coordinate_to_string, fleet_to_contract
 
 # Проверяем чтобы фактический состав флота совпадал с тем который мы задали
 def test_fleet_composition():
@@ -40,3 +40,34 @@ def test_ships_are_inside_board():
 
     for ship in fleet:
         assert is_ship_inside_board(ship)
+
+
+
+# Проверяем соответствие координат к названию строки
+def test_coordinate_to_string():
+    assert coordinate_to_string(0, 0) == "A1"
+    assert coordinate_to_string(0, 9) == "J1"
+    assert coordinate_to_string(4, 4) == "E5"
+    assert coordinate_to_string(9, 0) == "A10"
+    assert coordinate_to_string(9, 9) == "J10"
+
+
+# Проверяем формат флота согласно контракту
+def test_fleet_to_contract():
+    fleet = generate_fleet()
+
+    ships = fleet_to_contract(fleet)
+
+    assert len(ships) == len(FLEET)
+
+    lengths = sorted(len(ship["coordinates"]) for ship in ships)
+
+    assert lengths == sorted(FLEET)
+
+    for ship in ships:
+        assert "coordinates" in ship
+
+        for coordinate in ship["coordinates"]:
+            assert len(coordinate) in (2, 3)
+            assert coordinate[0] in "ABCDEFGHIJ"
+            assert 1 <= int(coordinate[1:]) <= 10
