@@ -1,5 +1,6 @@
 from concurrent.futures import ThreadPoolExecutor
 
+import pytest
 import httpx
 
 from app.database import SessionLocal
@@ -8,6 +9,25 @@ from time import perf_counter
 
 
 BASE_URL = "http://localhost:8000"
+
+
+def check_service():
+    try:
+        response = httpx.get(
+            f"{BASE_URL}/health",
+            timeout=1.0,
+        )
+        return response.status_code == 200
+    except httpx.RequestError:
+        return False
+
+
+@pytest.fixture(autouse=True)
+def require_running_service():
+    if not check_service():
+        pytest.skip(
+            "Для performance-тестов требуется запущенный сервис"
+        )
 
 
 def test_parallel_games_are_isolated():
