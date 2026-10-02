@@ -345,3 +345,52 @@ def accept_shot_result(
 
     finally:
         session.close()
+
+
+
+
+@app.post("/game/{session_id}/close")
+def close_game(session_id: str):
+    session = SessionLocal()
+
+    try:
+        # Проверяем session_id и приводим его к UUID
+        try:
+            session_uuid = uuid.UUID(session_id)
+        except ValueError:
+            raise HTTPException(
+                status_code=404,
+                detail="Игровая сессия не найдена",
+            )
+
+        # Ищем игровую сессию
+        game = session.query(GameSession).filter(
+            GameSession.session_id == session_uuid
+        ).first()
+
+        if game is None:
+            raise HTTPException(
+                status_code=404,
+                detail="Игровая сессия не найдена",
+            )
+
+        # Повторно закрывать уже закрытую игру нельзя
+        if game.status == "closed":
+            raise HTTPException(
+                status_code=400,
+                detail="Игровая сессия уже закрыта",
+            )
+
+        # Закрываем игровую сессию
+        game.status = "closed"
+
+        session.commit()
+
+        return {
+            "status": "closed",
+        }
+
+    finally:
+        session.close()
+
+
