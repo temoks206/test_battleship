@@ -6,6 +6,7 @@ import httpx
 from app.database import SessionLocal
 from app.models import GameSession, Shot
 from time import perf_counter
+from uuid import uuid4
 
 
 BASE_URL = "http://localhost:8000"
@@ -157,3 +158,206 @@ def test_parallel_requests_under_one_second():
     print(
         f"Максимальное время ответа: {max_time:.3f} с"
     )
+
+
+
+
+def test_concurrent_shots_in_same_session():
+    # Создаём одну игровую сессию
+    response = httpx.post(
+        f"{BASE_URL}/game",
+        timeout=5.0,
+    )
+
+    assert response.status_code == 201
+
+    session_id = response.json()["session_id"]
+
+    # Оба потока будут стрелять в рамках одной и той же игры
+    def make_shot():
+        return httpx.post(
+            f"{BASE_URL}/game/{session_id}/shot",
+            timeout=5.0,
+        )
+
+    # Отправляем два запроса практически одновременно
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda _: make_shot(),
+                range(2),
+            )
+        )
+
+    status_codes = sorted(
+        response.status_code
+        for response in responses
+    )
+
+    print(
+        f"\nКоды двух параллельных запросов: {status_codes}"
+    )
+
+    # Один запрос должен сделать выстрел,
+    # второй — получить отказ из-за нарушения очередности
+    assert status_codes == [200, 409]
+
+
+
+
+
+def test_concurrent_results_in_same_session():
+    # Создаём игру
+    response = httpx.post(
+        f"{BASE_URL}/game",
+        timeout=5.0,
+    )
+
+    assert response.status_code == 201
+    session_id = response.json()["session_id"]
+
+    # Сначала сервис делает один выстрел,
+    # для которого теперь ожидается результат
+    shot_response = httpx.post(
+        f"{BASE_URL}/game/{session_id}/shot",
+        timeout=5.0,
+    )
+
+    assert shot_response.status_code == 200
+
+    # Два потока одновременно пытаются
+    # передать результат одного и того же выстрела
+    def send_result():
+        return httpx.post(
+            f"{BASE_URL}/game/{session_id}/shot/result",
+            json={
+                "result": "miss",
+            },
+            timeout=5.0,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda _: send_result(),
+                range(2),
+            )
+        )
+
+    status_codes = sorted(
+        response.status_code
+        for response in responses
+    )
+
+    print(
+        f"\nКоды двух параллельных результатов: {status_codes}"
+    )
+
+    assert status_codes == [200, 409]
+
+
+
+
+
+def test_concurrent_close_in_same_session():
+    # Создаём одну игровую сессию
+    response = httpx.post(
+        f"{BASE_URL}/game",
+        timeout=5.0,
+    )
+
+    assert response.status_code == 201
+    session_id = response.json()["session_id"]
+
+    # Два потока одновременно пытаются закрыть одну игру
+    def close_game():
+        return httpx.post(
+            f"{BASE_URL}/game/{session_id}/close",
+            timeout=5.0,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                lambda _: close_game(),
+                range(2),
+            )
+        )
+
+    status_codes = sorted(
+        response.status_code
+        for response in responses
+    )
+
+    print(
+        f"\nКоды двух параллельных закрытий: {status_codes}"
+    )
+
+    # Один запрос закрывает игру,
+    # второй уже видит закрытое состояние
+    assert status_codes == [200, 400]
+
+
+
+
+def test_concurrent_opponent_shots_in_same_session():
+    # Создаём игру с известным двухпалубным кораблём A1-B1
+    session = SessionLocal()
+
+    game = GameSession(
+        session_id=uuid4(),
+        fleet=[
+            [[0, 0], [0, 1]],
+        ],
+        status="opened",
+    )
+
+    session.add(game)
+    session.commit()
+
+    session_id = str(game.session_id)
+
+    session.close()
+
+    # Одновременно стреляем в обе палубы одного корабля
+    coordinates = ["A1", "B1"]
+
+    def send_opponent_shot(coordinate):
+        return httpx.post(
+            f"{BASE_URL}/game/{session_id}/opponent-shot",
+            json={
+                "coordinate": coordinate,
+            },
+            timeout=5.0,
+        )
+
+    with ThreadPoolExecutor(max_workers=2) as executor:
+        responses = list(
+            executor.map(
+                send_opponent_shot,
+                coordinates,
+            )
+        )
+
+    status_codes = sorted(
+        response.status_code
+        for response in responses
+    )
+
+    results = sorted(
+        response.json()["result"]
+        for response in responses
+    )
+
+    print(
+        f"\nКоды параллельных выстрелов противника: {status_codes}"
+    )
+    print(
+        f"Результаты параллельных выстрелов: {results}"
+    )
+
+    # Оба выстрела допустимы
+    assert status_codes == [200, 200]
+
+    # Первый повреждает корабль, второй уничтожает его
+    assert results == ["hit", "killed"]
