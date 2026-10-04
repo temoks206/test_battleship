@@ -20,3 +20,12 @@ docker compose exec app alembic upgrade head
 ```bash
 docker compose exec app python -m pytest
 ```
+
+## Запуск арены
+
+Арена проводит матч между двумя Battleship-сервисами и контролирует корректность их поведения.
+
+Пример запуска:
+
+```bash
+python -m arena.main http://localhost:8000 http://localhost:8001

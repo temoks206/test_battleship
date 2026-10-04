@@ -1,6 +1,14 @@
 import httpx
 
 
+class ServiceClientError(Exception):
+    """Ошибка при взаимодействии с игровым сервисом."""
+
+
+class ServiceTimeoutError(ServiceClientError):
+    """Сервис не ответил за допустимое время."""
+
+
 class ServiceClient:
     def __init__(
         self,
@@ -8,79 +16,137 @@ class ServiceClient:
         timeout: float = 1.0,
     ):
         self.base_url = base_url.rstrip("/")
+        self.timeout = timeout
 
         self.client = httpx.Client(
             base_url=self.base_url,
             timeout=timeout,
         )
 
+    def _request_json(
+        self,
+        method: str,
+        path: str,
+        **kwargs,
+    ):
+        try:
+            response = self.client.request(
+                method,
+                path,
+                **kwargs,
+            )
+
+        except httpx.TimeoutException:
+            raise ServiceTimeoutError(
+                f"сервис не ответил за {self.timeout} секунду"
+            ) from None
+
+        except httpx.RequestError as error:
+            raise ServiceClientError(
+                f"ошибка соединения с сервисом: {error}"
+            ) from None
+
+        if not response.is_success:
+            raise ServiceClientError(
+                f"сервис вернул HTTP {response.status_code}"
+            )
+
+        try:
+            return response.json()
+
+        except ValueError:
+            raise ServiceClientError(
+                "сервис вернул некорректный JSON"
+            ) from None
+
     def create_game(self):
-        """Создаёт новую игровую сессию."""
-
-        response = self.client.post("/game")
-        response.raise_for_status()
-
-        return response.json()
-
-    def make_shot(self, session_id: str):
-        """Запрашивает следующий выстрел сервиса."""
-
-        response = self.client.post(
-            f"/game/{session_id}/shot"
+        data = self._request_json(
+            "POST",
+            "/game",
         )
 
-        response.raise_for_status()
+        if not isinstance(data, dict):
+            raise ServiceClientError(
+                "некорректный ответ POST /game"
+            )
 
-        return response.json()["coordinate"]
+        if "session_id" not in data:
+            raise ServiceClientError(
+                "в ответе POST /game отсутствует session_id"
+            )
+
+        if "ships" not in data:
+            raise ServiceClientError(
+                "в ответе POST /game отсутствует ships"
+            )
+
+        return data
+
+    def make_shot(self, session_id: str):
+        data = self._request_json(
+            "POST",
+            f"/game/{session_id}/shot",
+        )
+
+        coordinate = data.get("coordinate")
+
+        if not isinstance(coordinate, str):
+            raise ServiceClientError(
+                "сервис вернул некорректную координату"
+            )
+
+        return coordinate
 
     def opponent_shot(
         self,
         session_id: str,
         coordinate: str,
     ):
-        """Передаёт сервису выстрел противника."""
-
-        response = self.client.post(
+        data = self._request_json(
+            "POST",
             f"/game/{session_id}/opponent-shot",
-            json={
-                "coordinate": coordinate,
-            },
+            json={"coordinate": coordinate},
         )
 
-        response.raise_for_status()
+        result = data.get("result")
 
-        return response.json()["result"]
+        if result not in ("miss", "hit", "killed"):
+            raise ServiceClientError(
+                "сервис вернул некорректный результат выстрела"
+            )
+
+        return result
 
     def send_shot_result(
         self,
         session_id: str,
         result: str,
     ):
-        """Передаёт сервису результат его выстрела."""
-
-        response = self.client.post(
+        data = self._request_json(
+            "POST",
             f"/game/{session_id}/shot/result",
-            json={
-                "result": result,
-            },
+            json={"result": result},
         )
 
-        response.raise_for_status()
+        if data.get("status") != "accepted":
+            raise ServiceClientError(
+                "сервис не подтвердил результат выстрела"
+            )
 
-        return response.json()
+        return data
 
     def close_game(self, session_id: str):
-        """Закрывает игровую сессию."""
-
-        response = self.client.post(
-            f"/game/{session_id}/close"
+        data = self._request_json(
+            "POST",
+            f"/game/{session_id}/close",
         )
 
-        response.raise_for_status()
+        if data.get("status") != "closed":
+            raise ServiceClientError(
+                "сервис не подтвердил закрытие сессии"
+            )
 
-        return response.json()
+        return data
 
     def close(self):
-        """Закрывает HTTP-клиент."""
-
         self.client.close()
